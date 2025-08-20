@@ -1,0 +1,4 @@
+# This file tells Netlify where to find our serverless function.
+# This is necessary for the function to be deployed correctly.
+[build]
+  functions = "netlify/functions"
