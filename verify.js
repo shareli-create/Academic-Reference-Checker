@@ -1,32 +1,43 @@
-// A serverless function to act as a proxy for the CrossRef API
-// to get around browser CORS security restrictions.
-
+// netlify/functions/verify.js
 const fetch = require('node-fetch');
 
+// Using the built-in fetch available in modern Node.js environments on Netlify.
+// No 'node-fetch' dependency is required.
+
 exports.handler = async function(event) {
-  // We only accept POST requests
+  console.log('Function invoked. Method:', event.httpMethod);
+
   if (event.httpMethod !== 'POST') {
+    console.log('Invalid method. Returning 405.');
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
   try {
+    console.log('Parsing request body...');
     const { referenceText } = JSON.parse(event.body);
 
     if (!referenceText) {
+      console.log('Bad Request: referenceText is missing.');
       return { statusCode: 400, body: 'Bad Request: referenceText is required.' };
     }
+    console.log('Received reference text:', referenceText);
 
-    // It's good practice to identify yourself to the CrossRef API.
-    // Replace with a real email for better service.
-    const yourEmail = 'shareli@bschool.haifa.ac.il'; 
+    // IMPORTANT: Remember to replace this with your actual email
+    const yourEmail = 'name@example.com';
     const apiUrl = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(referenceText)}&rows=1&mailto=${yourEmail}`;
-
+    
+    console.log('Calling CrossRef API:', apiUrl);
     const response = await fetch(apiUrl);
+    console.log('CrossRef API response status:', response.status);
+
     if (!response.ok) {
-      return { statusCode: response.status, body: `CrossRef API Error: ${response.statusText}` };
+      const errorBody = await response.text();
+      console.error('CrossRef API Error:', response.status, errorBody);
+      return { statusCode: response.status, body: `CrossRef API Error: ${response.statusText}. Details: ${errorBody}` };
     }
 
     const data = await response.json();
+    console.log('Successfully received data from CrossRef.');
 
     let status = 'Not Found ❌';
     let details = 'Reference not found in CrossRef database.';
@@ -35,13 +46,12 @@ exports.handler = async function(event) {
       const topResult = data.message.items[0];
       const returnedTitle = topResult.title ? topResult.title[0] : '';
       
-      // A simple check to see if the result is plausible
-      const inputWords = referenceText.toLowerCase().match(/\b\w{4,}\b/g) || []; // get words of 4+ chars
+      const inputWords = referenceText.toLowerCase().match(/\b\w{4,}\b/g) || [];
       const titleWords = new Set(returnedTitle.toLowerCase().match(/\b\w{4,}\b/g) || []);
       
       const matchingWords = inputWords.filter(word => titleWords.has(word));
 
-      if (matchingWords.length >= 2) { // If at least 2 long words match, consider it verified.
+      if (matchingWords.length >= 2) {
           status = 'Verified ✓';
           details = `Match found: "${returnedTitle}"`;
           if (topResult.DOI) {
@@ -53,6 +63,7 @@ exports.handler = async function(event) {
       }
     }
     
+    console.log('Returning success response:', { status, details });
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -60,9 +71,10 @@ exports.handler = async function(event) {
     };
 
   } catch (error) {
+    console.error('FATAL_ERROR:', error);
     return {
       statusCode: 500,
-      body: `Server Error: ${error.message}`
+      body: `Server Error: An internal error occurred. Check function logs for details. Message: ${error.message}`
     };
   }
 };
