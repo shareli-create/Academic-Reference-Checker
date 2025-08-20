@@ -1,4 +1,5 @@
-# This file tells Netlify where to find our serverless function.
-# This is necessary for the function to be deployed correctly.
+# This file explicitly tells Netlify all build settings.
 [build]
-  functions = "netlify/functions"
+  command = "" # No build command is needed.
+  publish = "/" # The root directory, where index.html is.
+  functions = "netlify/functions" # The directory for serverless functions.
