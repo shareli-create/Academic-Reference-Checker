@@ -15,7 +15,7 @@
 const { useState } = React;
 
 const ReferenceChecker = () => {
-  const [document, setDocument] = useState('');
+  const [documentText, setDocumentText] = useState('');
   const [results, setResults] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [secondAnalysis, setSecondAnalysis] = useState(null);
@@ -242,7 +242,7 @@ const ReferenceChecker = () => {
     setIsSecondAnalysisRunning(true);
     
     setTimeout(() => {
-      const suggestions = performSecondAnalysis(results.unused, document);
+      const suggestions = performSecondAnalysis(results.unused, documentText);
       setSecondAnalysis(suggestions);
       setIsSecondAnalysisRunning(false);
     }, 1000);
@@ -451,15 +451,15 @@ const ReferenceChecker = () => {
   };
 
   const processDocument = () => {
-    if (!document.trim()) return;
+    if (!documentText.trim()) return;
     
     setIsProcessing(true);
     setSecondAnalysis(null);
     setVerificationResults(null);
     
     setTimeout(() => {
-      const citations = extractCitations(document);
-      const references = extractReferences(document);
+      const citations = extractCitations(documentText);
+      const references = extractReferences(documentText);
       const matchResults = matchCitationsToReferences(citations, references);
       
       const summary = {
@@ -643,8 +643,8 @@ const ReferenceChecker = () => {
               Document Text
             </label>
             <textarea
-              value={document}
-              onChange={(e) => setDocument(e.target.value)}
+              value={documentText}
+              onChange={(e) => setDocumentText(e.target.value)}
               placeholder="Paste your academic document here... Try testing with: (Gouda-Vossos et al., 2019)"
               className="w-full h-64 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
             />
@@ -652,7 +652,7 @@ const ReferenceChecker = () => {
 
           <button
             onClick={processDocument}
-            disabled={!document.trim() || isProcessing}
+            disabled={!documentText.trim() || isProcessing}
             className="w-full bg-indigo-600 text-white py-3 px-6 rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
           >
             {isProcessing ? (
