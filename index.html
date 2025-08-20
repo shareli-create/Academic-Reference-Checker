@@ -583,18 +583,32 @@ const ReferenceChecker = () => {
   };
 
   const downloadHtmlReport = () => {
+    console.log("1. Download button clicked.");
     const htmlContent = generateHtmlReport();
-    if (!htmlContent) return;
+    if (!htmlContent) {
+      console.error("2. Report generation failed, no content.");
+      return;
+    }
+    console.log("2. HTML content generated successfully.");
 
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'reference-report.html';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      console.log("3. Blob created.");
+      const url = URL.createObjectURL(blob);
+      console.log("4. Object URL created.");
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'reference-report.html';
+      document.body.appendChild(a);
+      a.click();
+      console.log("5. Download triggered.");
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      console.log("6. Cleanup complete.");
+    } catch (error) {
+      console.error("ERROR during download process:", error);
+      alert("An error occurred while trying to generate the download.");
+    }
   };
 
   const getConfidenceBadge = (confidence) => {
