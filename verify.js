@@ -18,7 +18,7 @@ exports.handler = async function(event) {
 
     // It's good practice to identify yourself to the CrossRef API.
     // Replace with a real email for better service.
-    const yourEmail = 'name@example.com'; 
+    const yourEmail = 'shareli@bschool.haifa.ac.il'; 
     const apiUrl = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(referenceText)}&rows=1&mailto=${yourEmail}`;
 
     const response = await fetch(apiUrl);
