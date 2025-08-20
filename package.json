@@ -4,6 +4,5 @@
   "description": "A standalone tool to verify academic references.",
   "scripts": {
     "test": "echo "Error: no test specified" && exit 1"
-  },
-  "dependencies": {}
+  }
 }
