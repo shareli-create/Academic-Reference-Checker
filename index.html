@@ -8,6 +8,7 @@
     <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.10.0/mammoth.browser.js"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -20,6 +21,27 @@ const ReferenceChecker = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [secondAnalysis, setSecondAnalysis] = useState(null);
   const [isSecondAnalysisRunning, setIsSecondAnalysisRunning] = useState(false);
+
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const arrayBuffer = e.target.result;
+            mammoth.extractRawText({ arrayBuffer: arrayBuffer })
+                .then(result => {
+                    const newText = result.value;
+                    setDocumentText(newText);
+                    processDocument(newText, true); // Pass new text and flag to clear results
+                })
+                .catch(err => {
+                    console.error("Error reading docx file:", err);
+                    alert("Error reading .docx file. Please ensure it's a valid file.");
+                });
+        };
+        reader.readAsArrayBuffer(file);
+    }
+  };
 
   const normalize = (text) => text.toLowerCase().replace(/[.,&]/g, '').replace(/\s+et\s+al\.?/g, '').replace(/[-\s]+/g, ' ').replace(/\s+/g, ' ').trim();
   const extractFirstAuthor = (authorString) => authorString.split(/\s*[&,]\s*/)[0].replace(/\s+et\s+al\.?/i, '').trim();
@@ -287,16 +309,34 @@ const ReferenceChecker = () => {
 
     setSecondAnalysis(prev => prev.filter(s => s.reference.original !== suggestionToConfirm.reference.original));
   };
+
+  const dismissSuggestionCandidate = (suggestionToDismiss, candidateToDismiss) => {
+    setSecondAnalysis(prev => {
+        const newAnalysis = prev.map(suggestion => {
+            if (suggestion.reference.original === suggestionToDismiss.reference.original) {
+                const newCandidates = suggestion.candidates.filter(c => c.text !== candidateToDismiss.text);
+                return { ...suggestion, candidates: newCandidates };
+            }
+            return suggestion;
+        });
+        return newAnalysis.filter(suggestion => suggestion.candidates.length > 0);
+    });
+  };
   
-  const processDocument = () => {
-    if (!documentText.trim()) return;
+  const processDocument = (textToProcess, isNewFile = false) => {
+    const docText = textToProcess || documentText;
+    if (!docText.trim()) return;
+    
+    if (isNewFile) {
+        setResults(null);
+    }
     
     setIsProcessing(true);
     setSecondAnalysis(null);
     
     setTimeout(() => {
-      const citations = extractCitations(documentText);
-      const references = extractReferences(documentText);
+      const citations = extractCitations(docText);
+      const references = extractReferences(docText);
       const matchResults = matchCitationsToReferences(citations, references);
       
       const summary = {
@@ -450,19 +490,30 @@ const ReferenceChecker = () => {
 
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Document Text
+            <label htmlFor="text-input" className="block text-sm font-medium text-gray-700 mb-2">
+              Paste Document Text
             </label>
+             <div className="mt-2 mb-4">
+                <label htmlFor="docx-file-input" className="text-sm font-medium text-gray-700">Or upload a .docx file:</label>
+                <input 
+                    type="file" 
+                    id="docx-file-input" 
+                    accept=".docx" 
+                    onChange={handleFileSelect}
+                    className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
+                />
+            </div>
             <textarea
+              id="text-input"
               value={documentText}
               onChange={(e) => setDocumentText(e.target.value)}
-              placeholder="Paste your academic document here... Try testing with: (Gouda-Vossos et al., 2019)"
+              placeholder="Paste your academic document here... or upload a .docx file."
               className="w-full h-64 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
             />
           </div>
 
           <button
-            onClick={processDocument}
+            onClick={() => processDocument()}
             disabled={!documentText.trim() || isProcessing}
             className="w-full bg-indigo-600 text-white py-3 px-6 rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
           >
@@ -575,12 +626,20 @@ const ReferenceChecker = () => {
                                     {Math.round(candidate.confidence * 100)}% confidence • {candidate.type}
                                   </div>
                                 </div>
-                                <button
-                                  onClick={() => markAsMatch(suggestion, candidate.text)}
-                                  className="ml-4 px-3 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
-                                >
-                                  Mark as Match
-                                </button>
+                                <div className="flex flex-col space-y-1">
+                                  <button
+                                    onClick={() => markAsMatch(suggestion, candidate.text)}
+                                    className="ml-4 px-3 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
+                                  >
+                                    Mark as Match
+                                  </button>
+                                  <button
+                                    onClick={() => dismissSuggestionCandidate(suggestion, candidate)}
+                                    className="ml-4 px-3 py-1 bg-gray-400 text-white text-xs rounded hover:bg-gray-500 transition-colors"
+                                  >
+                                    Not a Match
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           ))}
