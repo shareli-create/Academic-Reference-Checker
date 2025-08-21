@@ -106,7 +106,7 @@ const ReferenceChecker = () => {
   };
 
   const extractReferences = (text) => {
-    const refSectionMatch = text.match(/(References|Bibliography|Works Cited)\s*\n([\s\S]*?)(?:\n\n[A-Z]|\n*$)/i);
+    const refSectionMatch = text.match(/(References|Bibliography|Works Cited)\s*\n+([\s\S]*?)(?:\n\n[A-Z]|\n*$)/i);
     if (!refSectionMatch) return [];
 
     const refSection = refSectionMatch[2];
