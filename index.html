@@ -850,10 +850,15 @@ const ReferenceChecker = () => {
                           </div>
                           {verificationResults && verificationResults[item.reference.original] && (
                             <div className="mt-2 text-xs bg-blue-50 p-2 rounded">
-                              <strong>Verification:</strong> {verificationResults[item.reference.original].status}
-                              {verificationResults[item.reference.original].details && (
-                                <div className="text-gray-600 mt-1">{verificationResults[item.reference.original].details}</div>
-                              )}
+                              <strong>Verification Statuses:</strong>
+                              <ul className="list-disc pl-4 mt-1">
+                                {Object.entries(verificationResults[item.reference.original]).map(([source, result]) => (
+                                  <li key={source}>
+                                    <strong>{source}:</strong> {result.status}
+                                    {result.details && <span className="text-gray-600"> - {result.details}</span>}
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
                           )}
                         </div>
@@ -889,10 +894,15 @@ const ReferenceChecker = () => {
                           </div>
                           {verificationResults && verificationResults[item.reference.original] && (
                             <div className="mt-2 text-xs bg-blue-50 p-2 rounded">
-                              <strong>Verification:</strong> {verificationResults[item.reference.original].status}
-                              {verificationResults[item.reference.original].details && (
-                                <div className="text-gray-600 mt-1">{verificationResults[item.reference.original].details}</div>
-                              )}
+                              <strong>Verification Statuses:</strong>
+                              <ul className="list-disc pl-4 mt-1">
+                                {Object.entries(verificationResults[item.reference.original]).map(([source, result]) => (
+                                  <li key={source}>
+                                    <strong>{source}:</strong> {result.status}
+                                    {result.details && <span className="text-gray-600"> - {result.details}</span>}
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
                           )}
                         </div>
@@ -923,10 +933,15 @@ const ReferenceChecker = () => {
                       </div>
                       {verificationResults && verificationResults[item.reference.original] && (
                         <div className="text-xs bg-blue-50 p-2 rounded">
-                          <strong>Verification:</strong> {verificationResults[item.reference.original].status}
-                          {verificationResults[item.reference.original].details && (
-                            <div className="text-gray-600 mt-1">{verificationResults[item.reference.original].details}</div>
-                          )}
+                          <strong>Verification Statuses:</strong>
+                          <ul className="list-disc pl-4 mt-1">
+                            {Object.entries(verificationResults[item.reference.original]).map(([source, result]) => (
+                              <li key={source}>
+                                <strong>{source}:</strong> {result.status}
+                                {result.details && <span className="text-gray-600"> - {result.details}</span>}
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       )}
                     </div>
