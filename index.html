@@ -21,9 +21,11 @@ const ReferenceChecker = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [secondAnalysis, setSecondAnalysis] = useState(null);
   const [isSecondAnalysisRunning, setIsSecondAnalysisRunning] = useState(false);
+  const [debugText, setDebugText] = useState(''); // State for debug output
 
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
+    setDebugText(''); // Clear previous debug text
     if (file) {
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -31,12 +33,15 @@ const ReferenceChecker = () => {
             mammoth.extractRawText({ arrayBuffer: arrayBuffer })
                 .then(result => {
                     const newText = result.value;
+                    setDebugText(newText); // Set the debug text
                     setDocumentText(newText);
                     processDocument(newText, true); // Pass new text and flag to clear results
                 })
                 .catch(err => {
                     console.error("Error reading docx file:", err);
-                    alert("Error reading .docx file. Please ensure it's a valid file.");
+                    const errorMessage = `Error reading .docx file: ${err.message}`;
+                    setDebugText(errorMessage);
+                    alert(errorMessage);
                 });
         };
         reader.readAsArrayBuffer(file);
@@ -530,6 +535,14 @@ const ReferenceChecker = () => {
             )}
           </button>
         </div>
+
+        {debugText && (
+            <div className="mt-6 bg-gray-100 p-4 rounded-lg shadow-inner">
+                <h3 className="text-lg font-bold text-gray-800">Debug Output (Raw Extracted Text)</h3>
+                <p className="text-sm text-gray-600 mb-2">Please copy this entire block of text and paste it in the chat.</p>
+                <pre className="whitespace-pre-wrap bg-white p-4 border border-gray-300 rounded text-xs leading-relaxed">{debugText}</pre>
+            </div>
+        )}
 
         {results && (
           <div className="space-y-6">
