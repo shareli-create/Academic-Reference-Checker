@@ -248,96 +248,46 @@ const ReferenceChecker = () => {
     }, 1000);
   };
 
-  const markAsMatch = (refIndex, candidateText) => {
-    if (!secondAnalysis) return;
-    
-    const updatedAnalysis = secondAnalysis.map((suggestion, index) => {
-      if (index === refIndex) {
-        return { ...suggestion, confirmedMatch: candidateText, confirmed: true };
-      }
-      return suggestion;
-    });
-    
-    setSecondAnalysis(updatedAnalysis);
-  };
+  const markAsMatch = (suggestionToConfirm, candidateText) => {
+    if (!results || !suggestionToConfirm) return;
 
-  const updateResults = () => {
-    if (!secondAnalysis || !results) return;
-    
-    const confirmedMatches = secondAnalysis.filter(s => s.confirmed);
-    if (confirmedMatches.length === 0) return;
-    
-    const newPartialMatches = [];
-    const confirmedRefs = new Set();
-    const matchedMissingIndices = new Set();
-    
-    confirmedMatches.forEach(suggestion => {
-      let bestMissingMatch = null;
-      let bestScore = 0;
-      let bestIndex = -1;
-      
-      results.missing.forEach((missing, index) => {
-        const refYear = suggestion.reference.year;
-        let score = 0;
-        
-        if (missing.citation.year === refYear) {
-          score += 50;
-          const missingAuthor = missing.citation.authors.toLowerCase();
-          const refFirstAuthor = extractFirstAuthor(suggestion.reference.firstAuthor).toLowerCase();
-          
-          if (missingAuthor.includes(refFirstAuthor) || refFirstAuthor.includes(missingAuthor)) {
-            score += 40;
-          }
-        }
-        
-        if (score > bestScore && score > 60) {
-          bestScore = score;
-          bestMissingMatch = missing;
-          bestIndex = index;
-        }
-      });
-      
-      const newMatch = {
-        citation: bestMissingMatch ? bestMissingMatch.citation : {
-          original: suggestion.confirmedMatch,
-          authors: extractFirstAuthor(suggestion.reference.firstAuthor),
-          year: suggestion.reference.year,
-          normalized: normalize(extractFirstAuthor(suggestion.reference.firstAuthor) + ' ' + suggestion.reference.year),
-          type: 'confirmed'
-        },
-        reference: suggestion.reference,
-        confidence: 'User Confirmed',
-        matchType: 'user_confirmed'
-      };
-      
-      newPartialMatches.push(newMatch);
-      confirmedRefs.add(suggestion.reference);
-      
-      if (bestIndex !== -1) {
-        matchedMissingIndices.add(bestIndex);
-      }
-    });
-    
-    const updatedUnused = results.unused.filter(u => !confirmedRefs.has(u.reference));
-    const updatedMissing = results.missing.filter((missing, index) => !matchedMissingIndices.has(index));
-    
-    const updatedResults = {
-      ...results,
-      partialMatches: [...results.partialMatches, ...newPartialMatches],
-      unused: updatedUnused,
-      missing: updatedMissing,
-      summary: {
-        ...results.summary,
-        partialMatches: results.summary.partialMatches + newPartialMatches.length,
-        missingReferences: updatedMissing.length,
-        unusedReferences: updatedUnused.length,
-        matchRate: results.summary.totalCitations > 0 ? 
-          (((results.summary.fullMatches + results.summary.partialMatches + newPartialMatches.length) / results.summary.totalCitations) * 100).toFixed(1) + '%' : '0%'
-      }
+    // --- Create the new match ---
+    const newMatch = {
+      citation: {
+        original: candidateText,
+        authors: extractFirstAuthor(suggestionToConfirm.reference.firstAuthor),
+        year: suggestionToConfirm.reference.year,
+        normalized: normalize(extractFirstAuthor(suggestionToConfirm.reference.firstAuthor) + ' ' + suggestionToConfirm.reference.year),
+        type: 'confirmed'
+      },
+      reference: suggestionToConfirm.reference,
+      confidence: 'User Confirmed',
+      matchType: 'user_confirmed'
     };
+
+    // --- Update results arrays ---
+    const newPartialMatches = [...results.partialMatches, newMatch];
+    const updatedUnused = results.unused.filter(u => u.reference.original !== suggestionToConfirm.reference.original);
     
-    setResults(updatedResults);
-    setSecondAnalysis(secondAnalysis.filter(s => !s.confirmed));
+    // --- Update summary ---
+    const newSummary = {
+      ...results.summary,
+      partialMatches: newPartialMatches.length,
+      unusedReferences: updatedUnused.length,
+      matchRate: results.summary.totalCitations > 0 ?
+        (((results.fullMatches.length + newPartialMatches.length) / results.summary.totalCitations) * 100).toFixed(1) + '%' : '0%'
+    };
+
+    // --- Set new state ---
+    setResults({
+      ...results,
+      partialMatches: newPartialMatches,
+      unused: updatedUnused,
+      summary: newSummary,
+    });
+
+    // --- Remove the confirmed suggestion from the "Potential Matches" list ---
+    setSecondAnalysis(prev => prev.filter(s => s.reference.original !== suggestionToConfirm.reference.original));
   };
 
   const mockVerifyReference = async () => {
@@ -756,15 +706,6 @@ const ReferenceChecker = () => {
                     <span className="text-2xl text-purple-500 mr-2">🔄</span>
                     <h3 className="text-xl font-bold text-gray-800">Potential Matches Found ({secondAnalysis.length})</h3>
                   </div>
-                  {secondAnalysis.some(s => s.confirmed) && (
-                    <button
-                      onClick={updateResults}
-                      className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <span className="text-lg">✅</span>
-                      <span>Update Results ({secondAnalysis.filter(s => s.confirmed).length})</span>
-                    </button>
-                  )}
                 </div>
                 <div className="space-y-4">
                   {secondAnalysis.map((suggestion, index) => (
@@ -791,7 +732,7 @@ const ReferenceChecker = () => {
                                   </div>
                                 </div>
                                 <button
-                                  onClick={() => markAsMatch(index, candidate.text)}
+                                  onClick={() => markAsMatch(suggestion, candidate.text)}
                                   className="ml-4 px-3 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
                                 >
                                   Mark as Match
