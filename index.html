@@ -320,6 +320,41 @@ const ReferenceChecker = () => {
     
     setIsVerifying(false);
   };
+  
+  const processDocument = () => {
+    if (!documentText.trim()) return;
+    
+    setIsProcessing(true);
+    setSecondAnalysis(null);
+    setVerificationResults(null);
+    
+    setTimeout(() => {
+      const citations = extractCitations(documentText);
+      const references = extractReferences(documentText);
+      const matchResults = matchCitationsToReferences(citations, references);
+      
+      const summary = {
+        totalCitations: citations.length,
+        totalReferences: references.length,
+        fullMatches: matchResults.fullMatches.length,
+        partialMatches: matchResults.partialMatches.length,
+        missingReferences: matchResults.unmatched.length,
+        unusedReferences: matchResults.unusedReferences.length,
+        matchRate: citations.length > 0 ? 
+          (((matchResults.fullMatches.length + matchResults.partialMatches.length) / citations.length) * 100).toFixed(1) + '%' : '0%'
+      };
+
+      setResults({
+        summary,
+        fullMatches: matchResults.fullMatches,
+        partialMatches: matchResults.partialMatches,
+        missing: matchResults.unmatched,
+        unused: matchResults.unusedReferences
+      });
+      
+      setIsProcessing(false);
+    }, 1500);
+  };
 
   const generateHtmlReport = () => {
     if (!results) return '';
