@@ -21,11 +21,9 @@ const ReferenceChecker = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [secondAnalysis, setSecondAnalysis] = useState(null);
   const [isSecondAnalysisRunning, setIsSecondAnalysisRunning] = useState(false);
-  const [debugText, setDebugText] = useState(''); // State for debug output
 
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
-    setDebugText(''); // Clear previous debug text
     if (file) {
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -33,15 +31,12 @@ const ReferenceChecker = () => {
             mammoth.extractRawText({ arrayBuffer: arrayBuffer })
                 .then(result => {
                     const newText = result.value;
-                    setDebugText(newText); // Set the debug text
                     setDocumentText(newText);
-                    processDocument(newText, true); // Pass new text and flag to clear results
+                    processDocument(newText, true);
                 })
                 .catch(err => {
                     console.error("Error reading docx file:", err);
-                    const errorMessage = `Error reading .docx file: ${err.message}`;
-                    setDebugText(errorMessage);
-                    alert(errorMessage);
+                    alert(`Error reading .docx file: ${err.message}`);
                 });
         };
         reader.readAsArrayBuffer(file);
@@ -111,11 +106,6 @@ const ReferenceChecker = () => {
   };
 
   const extractReferences = (text) => {
-    const debugInfo = {
-        function: "extractReferences - FINAL ATTEMPT",
-        steps: []
-    };
-
     const headingOptions = ["References", "Bibliography", "Works Cited"];
     let refStartIndex = -1;
     let headingFound = '';
@@ -129,23 +119,16 @@ const ReferenceChecker = () => {
             break;
         }
     }
-    
-    debugInfo.steps.push({ step: "1. Find Heading", refStartIndex, headingFound });
 
     if (refStartIndex === -1) {
-        setDebugText(JSON.stringify(debugInfo, null, 2));
         return [];
     }
 
-    // The entire block of text after the heading is considered the reference content.
     const refContent = text.substring(refStartIndex + headingFound.length);
-    debugInfo.steps.push({ step: "2. Get refContent", refContent_length: refContent.length, refContent_snippet: refContent.substring(0, 200) + "..." });
     
     const refLines = refContent.split('\n').filter(line => {
-        // Keep lines that are longer than 20 chars and seem to contain a year in parentheses.
         return line.trim().length > 20 && /\(\d{4}\)/.test(line);
     });
-    debugInfo.steps.push({ step: "3. Split and Filter Lines", refLines_count: refLines.length, refLines_sample: refLines.slice(0,5) });
 
     const references = [];
     refLines.forEach(line => {
@@ -167,9 +150,6 @@ const ReferenceChecker = () => {
         firstAuthorNormalized: normalize(firstAuthor + ' ' + year)
       });
     });
-
-    debugInfo.steps.push({ step: "4. Final Result", references_found: references.length });
-    setDebugText(JSON.stringify(debugInfo, null, 2));
 
     return references;
   };
@@ -327,15 +307,12 @@ const ReferenceChecker = () => {
     
     const newFullMatchesCount = results.fullMatches.length;
     const newPartialMatchesCount = newPartialMatches.length;
-    const newTotalMatches = newFullMatchesCount + newPartialMatchesCount;
 
     const newSummary = {
       ...results.summary,
       fullMatches: newFullMatchesCount,
       partialMatches: newPartialMatchesCount,
       unusedReferences: updatedUnused.length,
-      matchRate: results.summary.totalCitations > 0 ?
-        ((newTotalMatches / results.summary.totalCitations) * 100).toFixed(1) + '%' : '0%'
     };
 
     setResults({
@@ -384,8 +361,6 @@ const ReferenceChecker = () => {
         partialMatches: matchResults.partialMatches.length,
         missingReferences: matchResults.unmatched.length,
         unusedReferences: matchResults.unusedReferences.length,
-        matchRate: citations.length > 0 ? 
-          (((matchResults.fullMatches.length + matchResults.partialMatches.length) / citations.length) * 100).toFixed(1) + '%' : '0%'
       };
 
       setResults({
@@ -439,7 +414,6 @@ const ReferenceChecker = () => {
           <div class="summary-card"><div class="value">${results.summary.partialMatches}</div><div>Partial Matches</div></div>
           <div class="summary-card"><div class="value">${results.summary.missingReferences}</div><div>Missing Refs</div></div>
           <div class="summary-card"><div class="value">${results.summary.unusedReferences}</div><div>Unused Refs</div></div>
-          <div class="summary-card"><div class="value">${results.summary.matchRate}</div><div>Match Rate</div></div>
         </div>
     `;
 
@@ -569,14 +543,6 @@ const ReferenceChecker = () => {
           </button>
         </div>
 
-        {debugText && (
-            <div className="mt-6 bg-gray-100 p-4 rounded-lg shadow-inner">
-                <h3 className="text-lg font-bold text-gray-800">Debug Output (Raw Extracted Text)</h3>
-                <p className="text-sm text-gray-600 mb-2">Please copy this entire block of text and paste it in the chat.</p>
-                <pre className="whitespace-pre-wrap bg-white p-4 border border-gray-300 rounded text-xs leading-relaxed">{debugText}</pre>
-            </div>
-        )}
-
         {results && (
           <div className="space-y-6">
             <div className="bg-white rounded-xl shadow-lg p-6">
@@ -612,7 +578,7 @@ const ReferenceChecker = () => {
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                 <div className="bg-blue-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-blue-600">{results.summary.totalCitations}</div>
                   <div className="text-sm text-gray-600">Total Citations</div>
@@ -632,10 +598,6 @@ const ReferenceChecker = () => {
                 <div className="bg-orange-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-orange-600">{results.summary.unusedReferences}</div>
                   <div className="text-sm text-gray-600">Unused Refs</div>
-                </div>
-                <div className="bg-purple-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-purple-600">{results.summary.matchRate}</div>
-                  <div className="text-sm text-gray-600">Match Rate</div>
                 </div>
               </div>
             </div>
