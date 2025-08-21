@@ -1,80 +1,115 @@
 // netlify/functions/verify.js
 const fetch = require('node-fetch');
 
-// Using the built-in fetch available in modern Node.js environments on Netlify.
-// No 'node-fetch' dependency is required.
+const YOUR_EMAIL = 'name@example.com'; // IMPORTANT: Replace with your email for politeness pools
 
+// --- Helper function for CrossRef ---
+const checkCrossRef = async (referenceText) => {
+  const url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(referenceText)}&rows=1&mailto=${YOUR_EMAIL}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`CrossRef API error: ${response.statusText}`);
+  const data = await response.json();
+  if (data.message.items.length > 0) {
+    const item = data.message.items[0];
+    const title = item.title ? item.title[0] : 'N/A';
+    return { status: 'Verified ✓', details: `Match found: ${title}` };
+  }
+  return { status: 'Not Found ❌', details: 'No match found.' };
+};
+
+// --- Helper function for PubMed ---
+const checkPubMed = async (referenceText) => {
+    // E-utilities require a two-step search: 1. get ID, 2. get summary
+    const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(referenceText)}&retmode=json&rows=1`;
+    const searchResponse = await fetch(searchUrl);
+    if (!searchResponse.ok) throw new Error(`PubMed ESearch API error: ${searchResponse.statusText}`);
+    const searchData = await searchResponse.json();
+
+    const idList = searchData.esearchresult?.idlist;
+    if (!idList || idList.length === 0) {
+        return { status: 'Not Found ❌', details: 'No match found.' };
+    }
+
+    const summaryUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${idList[0]}&retmode=json`;
+    const summaryResponse = await fetch(summaryUrl);
+    if (!summaryResponse.ok) throw new Error(`PubMed ESummary API error: ${summaryResponse.statusText}`);
+    const summaryData = await summaryResponse.json();
+
+    const title = summaryData.result?.[idList[0]]?.title || 'N/A';
+    return { status: 'Verified ✓', details: `Match found: ${title}` };
+};
+
+// --- Helper function for Semantic Scholar ---
+const checkSemanticScholar = async (referenceText) => {
+  const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(referenceText)}&limit=1`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Semantic Scholar API error: ${response.statusText}`);
+  const data = await response.json();
+  if (data.total > 0 && data.data.length > 0) {
+    const item = data.data[0];
+    return { status: 'Verified ✓', details: `Match found: ${item.title}` };
+  }
+  return { status: 'Not Found ❌', details: 'No match found.' };
+};
+
+// --- Helper function for OpenAlex ---
+const checkOpenAlex = async (referenceText) => {
+  const url = `https://api.openalex.org/works?filter=default.search:${encodeURIComponent(referenceText)}&per_page=1&mailto=${YOUR_EMAIL}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`OpenAlex API error: ${response.statusText}`);
+  const data = await response.json();
+  if (data.results.length > 0) {
+    const item = data.results[0];
+    return { status: 'Verified ✓', details: `Match found: ${item.display_name}` };
+  }
+  return { status: 'Not Found ❌', details: 'No match found.' };
+};
+
+
+// --- Main Handler ---
 exports.handler = async function(event) {
-  console.log('Function invoked. Method:', event.httpMethod);
-
   if (event.httpMethod !== 'POST') {
-    console.log('Invalid method. Returning 405.');
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
   try {
-    console.log('Parsing request body...');
     const { referenceText } = JSON.parse(event.body);
-
     if (!referenceText) {
-      console.log('Bad Request: referenceText is missing.');
       return { statusCode: 400, body: 'Bad Request: referenceText is required.' };
     }
-    console.log('Received reference text:', referenceText);
 
-    // IMPORTANT: Remember to replace this with your actual email
-    const yourEmail = 'name@example.com';
-    const apiUrl = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(referenceText)}&rows=1&mailto=${yourEmail}`;
+    const sources = {
+      CrossRef: checkCrossRef(referenceText),
+      PubMed: checkPubMed(referenceText),
+      SemanticScholar: checkSemanticScholar(referenceText),
+      OpenAlex: checkOpenAlex(referenceText),
+    };
 
-    console.log('Calling CrossRef API:', apiUrl);
-    const response = await fetch(apiUrl);
-    console.log('CrossRef API response status:', response.status);
+    const results = await Promise.allSettled(Object.values(sources));
+    const sourceKeys = Object.keys(sources);
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error('CrossRef API Error:', response.status, errorBody);
-      return { statusCode: response.status, body: `CrossRef API Error: ${response.statusText}. Details: ${errorBody}` };
-    }
-
-    const data = await response.json();
-    console.log('Successfully received data from CrossRef.');
-
-    let status = 'Not Found ❌';
-    let details = 'Reference not found in CrossRef database.';
-
-    if (data.message && data.message.items && data.message.items.length > 0) {
-      const topResult = data.message.items[0];
-      const returnedTitle = topResult.title ? topResult.title[0] : '';
-
-      const inputWords = referenceText.toLowerCase().match(/\b\w{4,}\b/g) || [];
-      const titleWords = new Set(returnedTitle.toLowerCase().match(/\b\w{4,}\b/g) || []);
-
-      const matchingWords = inputWords.filter(word => titleWords.has(word));
-
-      if (matchingWords.length >= 2) {
-          status = 'Verified ✓';
-          details = `Match found: "${returnedTitle}"`;
-          if (topResult.DOI) {
-            details += ` (DOI: ${topResult.DOI})`;
-          }
-      } else if (matchingWords.length > 0) {
-          status = 'Partially Verified ⚠️';
-          details = `Potential match with low confidence: "${returnedTitle}"`;
+    const responsePayload = {};
+    results.forEach((result, index) => {
+      const key = sourceKeys[index];
+      if (result.status === 'fulfilled') {
+        responsePayload[key] = result.value;
+      } else {
+        responsePayload[key] = { status: 'Error ❌', details: result.reason.message };
       }
-    }
+    });
 
-    console.log('Returning success response:', { status, details });
+    console.log("Response Payload:", JSON.stringify(responsePayload, null, 2));
+
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, details }),
+      body: JSON.stringify(responsePayload),
     };
 
   } catch (error) {
-    console.error('FATAL_ERROR:', error);
     return {
       statusCode: 500,
-      body: `Server Error: An internal error occurred. Check function logs for details. Message: ${error.message}`
+      body: `Server Error: ${error.message}`
     };
   }
 };

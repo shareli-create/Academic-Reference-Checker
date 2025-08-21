@@ -8,6 +8,7 @@
     <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.10.0/mammoth.browser.js"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -15,13 +16,32 @@
 const { useState } = React;
 
 const ReferenceChecker = () => {
-  const [document, setDocument] = useState('');
+  const [documentText, setDocumentText] = useState('');
   const [results, setResults] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [secondAnalysis, setSecondAnalysis] = useState(null);
   const [isSecondAnalysisRunning, setIsSecondAnalysisRunning] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [verificationResults, setVerificationResults] = useState(null);
+
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const arrayBuffer = e.target.result;
+            mammoth.extractRawText({ arrayBuffer: arrayBuffer })
+                .then(result => {
+                    const newText = result.value;
+                    setDocumentText(newText);
+                    processDocument(newText, true); // Pass new text and flag to clear results
+                })
+                .catch(err => {
+                    console.error("Error reading docx file:", err);
+                    alert("Error reading .docx file. Please ensure it's a valid file.");
+                });
+        };
+        reader.readAsArrayBuffer(file);
+    }
+  };
 
   const normalize = (text) => text.toLowerCase().replace(/[.,&]/g, '').replace(/\s+et\s+al\.?/g, '').replace(/[-\s]+/g, ' ').replace(/\s+/g, ' ').trim();
   const extractFirstAuthor = (authorString) => authorString.split(/\s*[&,]\s*/)[0].replace(/\s+et\s+al\.?/i, '').trim();
@@ -86,7 +106,7 @@ const ReferenceChecker = () => {
   };
 
   const extractReferences = (text) => {
-    const refSectionMatch = text.match(/(References|Bibliography|Works Cited)\s*\n([\s\S]*?)(?:\n\n[A-Z]|\n*$)/i);
+    const refSectionMatch = text.match(/(References|Bibliography|Works Cited)\s*\n+([\s\S]*?)(?:\n\n[A-Z]|\n*$)/i);
     if (!refSectionMatch) return [];
 
     const refSection = refSectionMatch[2];
@@ -242,224 +262,81 @@ const ReferenceChecker = () => {
     setIsSecondAnalysisRunning(true);
 
     setTimeout(() => {
-      const suggestions = performSecondAnalysis(results.unused, document);
+      const suggestions = performSecondAnalysis(results.unused, documentText);
       setSecondAnalysis(suggestions);
       setIsSecondAnalysisRunning(false);
     }, 1000);
   };
 
-  const markAsMatch = (refIndex, candidateText) => {
-    if (!secondAnalysis) return;
+  const markAsMatch = (suggestionToConfirm, candidateText) => {
+    if (!results || !suggestionToConfirm) return;
 
-    const updatedAnalysis = secondAnalysis.map((suggestion, index) => {
-      if (index === refIndex) {
-        return { ...suggestion, confirmedMatch: candidateText, confirmed: true };
-      }
-      return suggestion;
-    });
+    const newMatch = {
+      citation: {
+        original: candidateText,
+        authors: extractFirstAuthor(suggestionToConfirm.reference.firstAuthor),
+        year: suggestionToConfirm.reference.year,
+        normalized: normalize(extractFirstAuthor(suggestionToConfirm.reference.firstAuthor) + ' ' + suggestionToConfirm.reference.year),
+        type: 'confirmed'
+      },
+      reference: suggestionToConfirm.reference,
+      confidence: 'User Confirmed',
+      matchType: 'user_confirmed'
+    };
 
-    setSecondAnalysis(updatedAnalysis);
-  };
+    const newPartialMatches = [...results.partialMatches, newMatch];
+    const updatedUnused = results.unused.filter(u => u.reference.original !== suggestionToConfirm.reference.original);
 
-  const updateResults = () => {
-    if (!secondAnalysis || !results) return;
+    const newFullMatchesCount = results.fullMatches.length;
+    const newPartialMatchesCount = newPartialMatches.length;
+    const newTotalMatches = newFullMatchesCount + newPartialMatchesCount;
 
-    const confirmedMatches = secondAnalysis.filter(s => s.confirmed);
-    if (confirmedMatches.length === 0) return;
+    const newSummary = {
+      ...results.summary,
+      fullMatches: newFullMatchesCount,
+      partialMatches: newPartialMatchesCount,
+      unusedReferences: updatedUnused.length,
+      matchRate: results.summary.totalCitations > 0 ?
+        ((newTotalMatches / results.summary.totalCitations) * 100).toFixed(1) + '%' : '0%'
+    };
 
-    const newPartialMatches = [];
-    const confirmedRefs = new Set();
-    const matchedMissingIndices = new Set();
-
-    confirmedMatches.forEach(suggestion => {
-      let bestMissingMatch = null;
-      let bestScore = 0;
-      let bestIndex = -1;
-
-      results.missing.forEach((missing, index) => {
-        const refYear = suggestion.reference.year;
-        let score = 0;
-
-        if (missing.citation.year === refYear) {
-          score += 50;
-          const missingAuthor = missing.citation.authors.toLowerCase();
-          const refFirstAuthor = extractFirstAuthor(suggestion.reference.firstAuthor).toLowerCase();
-
-          if (missingAuthor.includes(refFirstAuthor) || refFirstAuthor.includes(missingAuthor)) {
-            score += 40;
-          }
-        }
-
-        if (score > bestScore && score > 60) {
-          bestScore = score;
-          bestMissingMatch = missing;
-          bestIndex = index;
-        }
-      });
-
-      const newMatch = {
-        citation: bestMissingMatch ? bestMissingMatch.citation : {
-          original: suggestion.confirmedMatch,
-          authors: extractFirstAuthor(suggestion.reference.firstAuthor),
-          year: suggestion.reference.year,
-          normalized: normalize(extractFirstAuthor(suggestion.reference.firstAuthor) + ' ' + suggestion.reference.year),
-          type: 'confirmed'
-        },
-        reference: suggestion.reference,
-        confidence: 'User Confirmed',
-        matchType: 'user_confirmed'
-      };
-
-      newPartialMatches.push(newMatch);
-      confirmedRefs.add(suggestion.reference);
-
-      if (bestIndex !== -1) {
-        matchedMissingIndices.add(bestIndex);
-      }
-    });
-
-    const updatedUnused = results.unused.filter(u => !confirmedRefs.has(u.reference));
-    const updatedMissing = results.missing.filter((missing, index) => !matchedMissingIndices.has(index));
-
-    const updatedResults = {
+    setResults({
       ...results,
-      partialMatches: [...results.partialMatches, ...newPartialMatches],
+      partialMatches: newPartialMatches,
       unused: updatedUnused,
-      missing: updatedMissing,
-      summary: {
-        ...results.summary,
-        partialMatches: results.summary.partialMatches + newPartialMatches.length,
-        missingReferences: updatedMissing.length,
-        unusedReferences: updatedUnused.length,
-        matchRate: results.summary.totalCitations > 0 ?
-          (((results.summary.fullMatches + results.summary.partialMatches + newPartialMatches.length) / results.summary.totalCitations) * 100).toFixed(1) + '%' : '0%'
-      }
-    };
+      summary: newSummary,
+    });
 
-    setResults(updatedResults);
-    setSecondAnalysis(secondAnalysis.filter(s => !s.confirmed));
+    setSecondAnalysis(prev => prev.filter(s => s.reference.original !== suggestionToConfirm.reference.original));
   };
 
-  const mockVerifyReference = async () => {
-    const random = Math.random();
-    if (random > 0.8) return { status: 'Verified ✓', details: 'Reference found and validated in CrossRef database' };
-    else if (random > 0.6) return { status: 'Partially Verified ⚠️', details: 'Reference found but title differs slightly from database record' };
-    else if (random > 0.4) return { status: 'Not Found ❌', details: 'Reference not found in CrossRef, Google Scholar, or PubMed databases' };
-    else return {
-      status: 'Format Issues ⚠️',
-      details: 'Specific issues: Missing DOI, journal name abbreviated incorrectly, author initials inconsistent, publication year format non-standard'
-    };
+  const dismissSuggestionCandidate = (suggestionToDismiss, candidateToDismiss) => {
+    setSecondAnalysis(prev => {
+        const newAnalysis = prev.map(suggestion => {
+            if (suggestion.reference.original === suggestionToDismiss.reference.original) {
+                const newCandidates = suggestion.candidates.filter(c => c.text !== candidateToDismiss.text);
+                return { ...suggestion, candidates: newCandidates };
+            }
+            return suggestion;
+        });
+        return newAnalysis.filter(suggestion => suggestion.candidates.length > 0);
+    });
   };
 
-  const verifyReferences = async () => {
-    if (!results) return;
-    setIsVerifying(true);
+  const processDocument = (textToProcess, isNewFile = false) => {
+    const docText = textToProcess || documentText;
+    if (!docText.trim()) return;
 
-    const allReferences = [...results.fullMatches.map(m => m.reference), ...results.partialMatches.map(m => m.reference), ...results.unused.map(u => u.reference)];
-    const verificationResults = {};
-
-    for (const ref of allReferences) {
-      try {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const verificationResult = await mockVerifyReference();
-        verificationResults[ref.original] = verificationResult;
-      } catch (error) {
-        verificationResults[ref.original] = { status: 'Error', details: 'Could not verify reference' };
-      }
+    if (isNewFile) {
+        setResults(null);
     }
-
-    setVerificationResults(verificationResults);
-    setIsVerifying(false);
-  };
-
-  const generateTextReport = () => {
-    if (!results) return '';
-
-    let report = 'ACADEMIC REFERENCE CHECK REPORT\\n';
-    report += '=' + '='.repeat(50) + '\\n\\n';
-
-    report += 'SUMMARY\\n';
-    report += '-'.repeat(20) + '\\n';
-    report += `Total Citations: ${results.summary.totalCitations}\\n`;
-    report += `Full Matches: ${results.summary.fullMatches}\\n`;
-    report += `Partial Matches: ${results.summary.partialMatches}\\n`;
-    report += `Missing References: ${results.summary.missingReferences}\\n`;
-    report += `Unused References: ${results.summary.unusedReferences}\\n`;
-    report += `Match Rate: ${results.summary.matchRate}\\n\\n`;
-
-    if (results.fullMatches.length > 0) {
-      report += `FULL MATCHES (${results.fullMatches.length})\\n`;
-      report += '-'.repeat(30) + '\\n';
-      results.fullMatches.forEach((item, index) => {
-        report += `${index + 1}. Citation: ${item.citation.original}\\n`;
-        report += `   Matches: ${item.reference.original}\\n`;
-        if (verificationResults && verificationResults[item.reference.original]) {
-          report += `   Verification: ${verificationResults[item.reference.original].status}\\n`;
-          if (verificationResults[item.reference.original].details) {
-            report += `   Details: ${verificationResults[item.reference.original].details}\\n`;
-          }
-        }
-        report += '\\n';
-      });
-    }
-
-    if (results.partialMatches.length > 0) {
-      report += `PARTIAL MATCHES (${results.partialMatches.length})\\n`;
-      report += '-'.repeat(30) + '\\n';
-      results.partialMatches.forEach((item, index) => {
-        report += `${index + 1}. Citation: ${item.citation.original}\\n`;
-        report += `   Matches: ${item.reference.original}\\n`;
-        const confidenceText = item.confidence === 'User Confirmed' ? 'User Confirmed' : `${item.confidence}% confidence`;
-        report += `   Confidence: ${confidenceText}\\n`;
-        if (verificationResults && verificationResults[item.reference.original]) {
-          report += `   Verification: ${verificationResults[item.reference.original].status}\\n`;
-          if (verificationResults[item.reference.original].details) {
-            report += `   Details: ${verificationResults[item.reference.original].details}\\n`;
-          }
-        }
-        report += '\\n';
-      });
-    }
-
-    if (results.missing.length > 0) {
-      report += `MISSING REFERENCES (${results.missing.length})\\n`;
-      report += '-'.repeat(30) + '\\n';
-      results.missing.forEach((item, index) => {
-        report += `${index + 1}. Citation: ${item.citation.original}\\n`;
-        report += `   Authors: ${item.citation.authors} | Year: ${item.citation.year}\\n\\n`;
-      });
-    }
-
-    if (results.unused.length > 0) {
-      report += `UNUSED REFERENCES (${results.unused.length})\\n`;
-      report += '-'.repeat(30) + '\\n';
-      results.unused.forEach((item, index) => {
-        report += `${index + 1}. Reference: ${item.reference.original}\\n`;
-        if (verificationResults && verificationResults[item.reference.original]) {
-          report += `   Verification: ${verificationResults[item.reference.original].status}\\n`;
-          if (verificationResults[item.reference.original].details) {
-            report += `   Details: ${verificationResults[item.reference.original].details}\\n`;
-          }
-        }
-        report += '\\n';
-      });
-    }
-
-    report += `Report generated on ${new Date().toLocaleString()}\\n`;
-
-    return report;
-  };
-
-  const processDocument = () => {
-    if (!document.trim()) return;
 
     setIsProcessing(true);
     setSecondAnalysis(null);
-    setVerificationResults(null);
 
     setTimeout(() => {
-      const citations = extractCitations(document);
-      const references = extractReferences(document);
+      const citations = extractCitations(docText);
+      const references = extractReferences(docText);
       const matchResults = matchCitationsToReferences(citations, references);
 
       const summary = {
@@ -499,7 +376,6 @@ const ReferenceChecker = () => {
       .result-item { background: #fdfdfd; border: 1px solid #eee; padding: 15px; margin-bottom: 15px; border-radius: 5px; }
       .result-item .citation { font-weight: bold; }
       .result-item .reference { margin-top: 5px; padding-left: 15px; border-left: 3px solid #ddd; }
-      .verification { margin-top: 10px; padding: 8px; background: #e7f3fe; border: 1px solid #d0e0f0; border-radius: 4px; font-size: 0.9em;}
       .full-match { border-left-color: #2ecc71; }
       .partial-match { border-left-color: #f1c40f; }
       .missing-ref { border-left-color: #e74c3c; color: #e74c3c; }
@@ -536,7 +412,6 @@ const ReferenceChecker = () => {
           <div class="result-item full-match">
             <div class="citation">Citation: ${item.citation.original}</div>
             <div class="reference">Matches: ${item.reference.original}</div>
-            ${verificationResults && verificationResults[item.reference.original] ? `<div class="verification"><strong>Verification:</strong> ${verificationResults[item.reference.original].status} - ${verificationResults[item.reference.original].details}</div>` : ''}
           </div>
         `;
       });
@@ -549,7 +424,6 @@ const ReferenceChecker = () => {
           <div class="result-item partial-match">
             <div class="citation">Citation: ${item.citation.original}</div>
             <div class="reference">Matches: ${item.reference.original}</div>
-            ${verificationResults && verificationResults[item.reference.original] ? `<div class="verification"><strong>Verification:</strong> ${verificationResults[item.reference.original].status} - ${verificationResults[item.reference.original].details}</div>` : ''}
           </div>
         `;
       });
@@ -558,23 +432,14 @@ const ReferenceChecker = () => {
     if (results.missing.length > 0) {
       html += '<h2>Missing References</h2>';
       results.missing.forEach(item => {
-        html += `
-          <div class="result-item missing-ref">
-            <div class="citation">Citation: ${item.citation.original}</div>
-          </div>
-        `;
+        html += `<div class="result-item missing-ref"><div class="citation">Citation: ${item.citation.original}</div></div>`;
       });
     }
 
     if (results.unused.length > 0) {
       html += '<h2>Unused References</h2>';
       results.unused.forEach(item => {
-        html += `
-          <div class="result-item unused-ref">
-            <div class="reference">${item.reference.original}</div>
-            ${verificationResults && verificationResults[item.reference.original] ? `<div class="verification"><strong>Verification:</strong> ${verificationResults[item.reference.original].status} - ${verificationResults[item.reference.original].details}</div>` : ''}
-          </div>
-        `;
+        html += `<div class="result-item unused-ref"><div class="reference">${item.reference.original}</div></div>`;
       });
     }
 
@@ -583,32 +448,18 @@ const ReferenceChecker = () => {
   };
 
   const downloadHtmlReport = () => {
-    console.log("1. Download button clicked.");
     const htmlContent = generateHtmlReport();
-    if (!htmlContent) {
-      console.error("2. Report generation failed, no content.");
-      return;
-    }
-    console.log("2. HTML content generated successfully.");
+    if (!htmlContent) return;
 
-    try {
-      const blob = new Blob([htmlContent], { type: 'text/html' });
-      console.log("3. Blob created.");
-      const url = URL.createObjectURL(blob);
-      console.log("4. Object URL created.");
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'reference-report.html';
-      document.body.appendChild(a);
-      a.click();
-      console.log("5. Download triggered.");
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      console.log("6. Cleanup complete.");
-    } catch (error) {
-      console.error("ERROR during download process:", error);
-      alert("An error occurred while trying to generate the download.");
-    }
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'reference-report.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const getConfidenceBadge = (confidence) => {
@@ -639,20 +490,31 @@ const ReferenceChecker = () => {
 
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Document Text
+            <label htmlFor="text-input" className="block text-sm font-medium text-gray-700 mb-2">
+              Paste Document Text
             </label>
+             <div className="mt-2 mb-4">
+                <label htmlFor="docx-file-input" className="text-sm font-medium text-gray-700">Or upload a .docx file:</label>
+                <input
+                    type="file"
+                    id="docx-file-input"
+                    accept=".docx"
+                    onChange={handleFileSelect}
+                    className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
+                />
+            </div>
             <textarea
-              value={document}
-              onChange={(e) => setDocument(e.target.value)}
-              placeholder="Paste your academic document here... Try testing with: (Gouda-Vossos et al., 2019)"
+              id="text-input"
+              value={documentText}
+              onChange={(e) => setDocumentText(e.target.value)}
+              placeholder="Paste your academic document here... or upload a .docx file."
               className="w-full h-64 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
             />
           </div>
 
           <button
-            onClick={processDocument}
-            disabled={!document.trim() || isProcessing}
+            onClick={() => processDocument()}
+            disabled={!documentText.trim() || isProcessing}
             className="w-full bg-indigo-600 text-white py-3 px-6 rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
           >
             {isProcessing ? (
@@ -694,23 +556,6 @@ const ReferenceChecker = () => {
                       )}
                     </button>
                   )}
-                  <button
-                    onClick={verifyReferences}
-                    disabled={isVerifying}
-                    className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
-                  >
-                    {isVerifying ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        <span>Verifying...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="text-lg">✅</span>
-                        <span>Verify Online</span>
-                      </>
-                    )}
-                  </button>
                   <button
                     onClick={downloadHtmlReport}
                     className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
@@ -756,15 +601,6 @@ const ReferenceChecker = () => {
                     <span className="text-2xl text-purple-500 mr-2">🔄</span>
                     <h3 className="text-xl font-bold text-gray-800">Potential Matches Found ({secondAnalysis.length})</h3>
                   </div>
-                  {secondAnalysis.some(s => s.confirmed) && (
-                    <button
-                      onClick={updateResults}
-                      className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <span className="text-lg">✅</span>
-                      <span>Update Results ({secondAnalysis.filter(s => s.confirmed).length})</span>
-                    </button>
-                  )}
                 </div>
                 <div className="space-y-4">
                   {secondAnalysis.map((suggestion, index) => (
@@ -790,12 +626,20 @@ const ReferenceChecker = () => {
                                     {Math.round(candidate.confidence * 100)}% confidence • {candidate.type}
                                   </div>
                                 </div>
-                                <button
-                                  onClick={() => markAsMatch(index, candidate.text)}
-                                  className="ml-4 px-3 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
-                                >
-                                  Mark as Match
-                                </button>
+                                <div className="flex flex-col space-y-1">
+                                  <button
+                                    onClick={() => markAsMatch(suggestion, candidate.text)}
+                                    className="ml-4 px-3 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
+                                  >
+                                    Mark as Match
+                                  </button>
+                                  <button
+                                    onClick={() => dismissSuggestionCandidate(suggestion, candidate)}
+                                    className="ml-4 px-3 py-1 bg-gray-400 text-white text-xs rounded hover:bg-gray-500 transition-colors"
+                                  >
+                                    Not a Match
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -848,14 +692,6 @@ const ReferenceChecker = () => {
                               (Search Google)
                             </a>
                           </div>
-                          {verificationResults && verificationResults[item.reference.original] && (
-                            <div className="mt-2 text-xs bg-blue-50 p-2 rounded">
-                              <strong>Verification:</strong> {verificationResults[item.reference.original].status}
-                              {verificationResults[item.reference.original].details && (
-                                <div className="text-gray-600 mt-1">{verificationResults[item.reference.original].details}</div>
-                              )}
-                            </div>
-                          )}
                         </div>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getConfidenceBadge(item.confidence)}`}>
                           {item.confidence}% confidence
@@ -887,14 +723,6 @@ const ReferenceChecker = () => {
                               (Search Google)
                             </a>
                           </div>
-                          {verificationResults && verificationResults[item.reference.original] && (
-                            <div className="mt-2 text-xs bg-blue-50 p-2 rounded">
-                              <strong>Verification:</strong> {verificationResults[item.reference.original].status}
-                              {verificationResults[item.reference.original].details && (
-                                <div className="text-gray-600 mt-1">{verificationResults[item.reference.original].details}</div>
-                              )}
-                            </div>
-                          )}
                         </div>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getConfidenceBadge(item.confidence)}`}>
                           {item.confidence === 'User Confirmed' ? 'User Confirmed' : `${item.confidence}% confidence`}
@@ -921,14 +749,6 @@ const ReferenceChecker = () => {
                           (Search Google)
                         </a>
                       </div>
-                      {verificationResults && verificationResults[item.reference.original] && (
-                        <div className="text-xs bg-blue-50 p-2 rounded">
-                          <strong>Verification:</strong> {verificationResults[item.reference.original].status}
-                          {verificationResults[item.reference.original].details && (
-                            <div className="text-gray-600 mt-1">{verificationResults[item.reference.original].details}</div>
-                          )}
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
