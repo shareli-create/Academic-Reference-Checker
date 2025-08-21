@@ -111,11 +111,18 @@ const ReferenceChecker = () => {
   };
 
   const extractReferences = (text) => {
+    const debugInfo = {
+        function: "extractReferences",
+        steps: []
+    };
+
     const headingOptions = ["References", "Bibliography", "Works Cited"];
     let refStartIndex = -1;
     let headingFound = '';
+    let headingUsedForSearch = '';
 
     for (const heading of headingOptions) {
+        headingUsedForSearch = heading;
         const regex = new RegExp(`^\\s*${heading}\\s*$`, "im");
         const match = text.match(regex);
         if (match) {
@@ -125,18 +132,48 @@ const ReferenceChecker = () => {
         }
     }
 
+    debugInfo.steps.push({
+        step: "1. Find Heading",
+        lastHeadingSearched: headingUsedForSearch,
+        refStartIndex,
+        headingFound,
+    });
+
     if (refStartIndex === -1) {
+        setDebugText(JSON.stringify(debugInfo, null, 2));
         return [];
     }
 
     let refBlock = text.substring(refStartIndex + headingFound.length);
+    debugInfo.steps.push({
+        step: "2. Get refBlock",
+        refBlock_length: refBlock.length,
+        refBlock_snippet: refBlock.substring(0, 200) + "..."
+    });
     
     const endMatch = refBlock.match(/^\s*\n\s*[A-Z]/m);
+    debugInfo.steps.push({
+        step: "3. Find endMatch",
+        regex_used: "^\\s*\\n\\s*[A-Z]",
+        endMatch_result: endMatch ? endMatch[0] : null,
+        endMatch_index: endMatch ? endMatch.index : -1
+    });
+
     const refContent = endMatch ? refBlock.substring(0, endMatch.index) : refBlock;
+    debugInfo.steps.push({
+        step: "4. Get refContent",
+        refContent_length: refContent.length,
+        refContent_snippet: refContent.substring(0, 200) + "..."
+    });
 
     const refLines = refContent.split('\n').filter(line => line.trim().length > 20);
-    const references = [];
+    debugInfo.steps.push({
+        step: "5. Split and Filter Lines",
+        refLines_count: refLines.length,
+        refLines_sample: refLines.slice(0, 5)
+    });
     
+    const references = [];
     refLines.forEach(line => {
       const yearMatch = line.match(/\((\d{4})\)/);
       if (!yearMatch) return;
@@ -157,6 +194,12 @@ const ReferenceChecker = () => {
       });
     });
 
+    debugInfo.steps.push({
+        step: "6. Final Result",
+        references_found: references.length
+    });
+
+    setDebugText(JSON.stringify(debugInfo, null, 2));
     return references;
   };
 
