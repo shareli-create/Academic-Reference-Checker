@@ -114,7 +114,6 @@ const ReferenceChecker = () => {
     const headingOptions = ["References", "Bibliography", "Works Cited"];
     let refStartIndex = -1;
     let headingFound = '';
-    let refBlock = '';
 
     for (const heading of headingOptions) {
         const regex = new RegExp(`^\\s*${heading}\\s*$`, "im");
@@ -127,21 +126,12 @@ const ReferenceChecker = () => {
     }
 
     if (refStartIndex === -1) {
-        return []; // Heading not found
-    }
-
-    // Get the text from the start of the heading onwards
-    const textFromHeading = text.substring(refStartIndex);
-    
-    // Find the content *after* the heading line
-    const contentAfterHeadingMatch = textFromHeading.match(new RegExp(`^${headingFound.trim()}[\\s\\S]*?\\n+([\\s\\S]*)`, "i"));
-    if (!contentAfterHeadingMatch || !contentAfterHeadingMatch[1]) {
         return [];
     }
-    refBlock = contentAfterHeadingMatch[1];
 
-    // Now, let's find where the references end.
-    const endMatch = refBlock.match(/\n\n\s*[A-Z]/);
+    let refBlock = text.substring(refStartIndex + headingFound.length);
+    
+    const endMatch = refBlock.match(/^\s*\n\s*[A-Z]/m);
     const refContent = endMatch ? refBlock.substring(0, endMatch.index) : refBlock;
 
     const refLines = refContent.split('\n').filter(line => line.trim().length > 20);
