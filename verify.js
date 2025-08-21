@@ -98,6 +98,8 @@ exports.handler = async function(event) {
       }
     });
 
+    console.log("Response Payload:", JSON.stringify(responsePayload, null, 2));
+
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
