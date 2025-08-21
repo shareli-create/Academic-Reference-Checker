@@ -251,7 +251,6 @@ const ReferenceChecker = () => {
   const markAsMatch = (suggestionToConfirm, candidateText) => {
     if (!results || !suggestionToConfirm) return;
 
-    // --- Create the new match ---
     const newMatch = {
       citation: {
         original: candidateText,
@@ -265,20 +264,22 @@ const ReferenceChecker = () => {
       matchType: 'user_confirmed'
     };
 
-    // --- Update results arrays ---
     const newPartialMatches = [...results.partialMatches, newMatch];
     const updatedUnused = results.unused.filter(u => u.reference.original !== suggestionToConfirm.reference.original);
     
-    // --- Update summary ---
+    const newFullMatchesCount = results.fullMatches.length;
+    const newPartialMatchesCount = newPartialMatches.length;
+    const newTotalMatches = newFullMatchesCount + newPartialMatchesCount;
+
     const newSummary = {
       ...results.summary,
-      partialMatches: newPartialMatches.length,
+      fullMatches: newFullMatchesCount,
+      partialMatches: newPartialMatchesCount,
       unusedReferences: updatedUnused.length,
       matchRate: results.summary.totalCitations > 0 ?
-        (((results.fullMatches.length + newPartialMatches.length) / results.summary.totalCitations) * 100).toFixed(1) + '%' : '0%'
+        ((newTotalMatches / results.summary.totalCitations) * 100).toFixed(1) + '%' : '0%'
     };
 
-    // --- Set new state ---
     setResults({
       ...results,
       partialMatches: newPartialMatches,
@@ -286,19 +287,7 @@ const ReferenceChecker = () => {
       summary: newSummary,
     });
 
-    // --- Remove the confirmed suggestion from the "Potential Matches" list ---
     setSecondAnalysis(prev => prev.filter(s => s.reference.original !== suggestionToConfirm.reference.original));
-  };
-
-  const mockVerifyReference = async () => {
-    const random = Math.random();
-    if (random > 0.8) return { status: 'Verified ✓', details: 'Reference found and validated in CrossRef database' };
-    else if (random > 0.6) return { status: 'Partially Verified ⚠️', details: 'Reference found but title differs slightly from database record' };
-    else if (random > 0.4) return { status: 'Not Found ❌', details: 'Reference not found in CrossRef, Google Scholar, or PubMed databases' };
-    else return { 
-      status: 'Format Issues ⚠️', 
-      details: 'Specific issues: Missing DOI, journal name abbreviated incorrectly, author initials inconsistent, publication year format non-standard' 
-    };
   };
 
   const verifyReferences = async () => {
@@ -306,133 +295,30 @@ const ReferenceChecker = () => {
     setIsVerifying(true);
     
     const allReferences = [...results.fullMatches.map(m => m.reference), ...results.partialMatches.map(m => m.reference), ...results.unused.map(u => u.reference)];
-    const verificationResults = {};
+    const newVerificationResults = {};
     
     for (const ref of allReferences) {
       try {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const verificationResult = await mockVerifyReference();
-        verificationResults[ref.original] = verificationResult;
+        const response = await fetch('/.netlify/functions/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ referenceText: ref.original }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          newVerificationResults[ref.original] = result;
+        } else {
+          const errorText = await response.text();
+          newVerificationResults[ref.original] = { "API Error": { status: 'Error ❌', details: `Verification failed: ${errorText}` }};
+        }
       } catch (error) {
-        verificationResults[ref.original] = { status: 'Error', details: 'Could not verify reference' };
+        newVerificationResults[ref.original] = { "Connection Error": { status: 'Error ❌', details: `Could not connect to verification service: ${error.message}` }};
       }
+      setVerificationResults({...newVerificationResults});
     }
     
-    setVerificationResults(verificationResults);
     setIsVerifying(false);
-  };
-
-  const generateTextReport = () => {
-    if (!results) return '';
-    
-    let report = 'ACADEMIC REFERENCE CHECK REPORT\\n';
-    report += '=' + '='.repeat(50) + '\\n\\n';
-    
-    report += 'SUMMARY\\n';
-    report += '-'.repeat(20) + '\\n';
-    report += `Total Citations: ${results.summary.totalCitations}\\n`;
-    report += `Full Matches: ${results.summary.fullMatches}\\n`;
-    report += `Partial Matches: ${results.summary.partialMatches}\\n`;
-    report += `Missing References: ${results.summary.missingReferences}\\n`;
-    report += `Unused References: ${results.summary.unusedReferences}\\n`;
-    report += `Match Rate: ${results.summary.matchRate}\\n\\n`;
-
-    if (results.fullMatches.length > 0) {
-      report += `FULL MATCHES (${results.fullMatches.length})\\n`;
-      report += '-'.repeat(30) + '\\n';
-      results.fullMatches.forEach((item, index) => {
-        report += `${index + 1}. Citation: ${item.citation.original}\\n`;
-        report += `   Matches: ${item.reference.original}\\n`;
-        if (verificationResults && verificationResults[item.reference.original]) {
-          report += `   Verification: ${verificationResults[item.reference.original].status}\\n`;
-          if (verificationResults[item.reference.original].details) {
-            report += `   Details: ${verificationResults[item.reference.original].details}\\n`;
-          }
-        }
-        report += '\\n';
-      });
-    }
-
-    if (results.partialMatches.length > 0) {
-      report += `PARTIAL MATCHES (${results.partialMatches.length})\\n`;
-      report += '-'.repeat(30) + '\\n';
-      results.partialMatches.forEach((item, index) => {
-        report += `${index + 1}. Citation: ${item.citation.original}\\n`;
-        report += `   Matches: ${item.reference.original}\\n`;
-        const confidenceText = item.confidence === 'User Confirmed' ? 'User Confirmed' : `${item.confidence}% confidence`;
-        report += `   Confidence: ${confidenceText}\\n`;
-        if (verificationResults && verificationResults[item.reference.original]) {
-          report += `   Verification: ${verificationResults[item.reference.original].status}\\n`;
-          if (verificationResults[item.reference.original].details) {
-            report += `   Details: ${verificationResults[item.reference.original].details}\\n`;
-          }
-        }
-        report += '\\n';
-      });
-    }
-
-    if (results.missing.length > 0) {
-      report += `MISSING REFERENCES (${results.missing.length})\\n`;
-      report += '-'.repeat(30) + '\\n';
-      results.missing.forEach((item, index) => {
-        report += `${index + 1}. Citation: ${item.citation.original}\\n`;
-        report += `   Authors: ${item.citation.authors} | Year: ${item.citation.year}\\n\\n`;
-      });
-    }
-
-    if (results.unused.length > 0) {
-      report += `UNUSED REFERENCES (${results.unused.length})\\n`;
-      report += '-'.repeat(30) + '\\n';
-      results.unused.forEach((item, index) => {
-        report += `${index + 1}. Reference: ${item.reference.original}\\n`;
-        if (verificationResults && verificationResults[item.reference.original]) {
-          report += `   Verification: ${verificationResults[item.reference.original].status}\\n`;
-          if (verificationResults[item.reference.original].details) {
-            report += `   Details: ${verificationResults[item.reference.original].details}\\n`;
-          }
-        }
-        report += '\\n';
-      });
-    }
-
-    report += `Report generated on ${new Date().toLocaleString()}\\n`;
-    
-    return report;
-  };
-
-  const processDocument = () => {
-    if (!documentText.trim()) return;
-    
-    setIsProcessing(true);
-    setSecondAnalysis(null);
-    setVerificationResults(null);
-    
-    setTimeout(() => {
-      const citations = extractCitations(documentText);
-      const references = extractReferences(documentText);
-      const matchResults = matchCitationsToReferences(citations, references);
-      
-      const summary = {
-        totalCitations: citations.length,
-        totalReferences: references.length,
-        fullMatches: matchResults.fullMatches.length,
-        partialMatches: matchResults.partialMatches.length,
-        missingReferences: matchResults.unmatched.length,
-        unusedReferences: matchResults.unusedReferences.length,
-        matchRate: citations.length > 0 ? 
-          (((matchResults.fullMatches.length + matchResults.partialMatches.length) / citations.length) * 100).toFixed(1) + '%' : '0%'
-      };
-
-      setResults({
-        summary,
-        fullMatches: matchResults.fullMatches,
-        partialMatches: matchResults.partialMatches,
-        missing: matchResults.unmatched,
-        unused: matchResults.unusedReferences
-      });
-      
-      setIsProcessing(false);
-    }, 1500);
   };
 
   const generateHtmlReport = () => {
@@ -449,7 +335,7 @@ const ReferenceChecker = () => {
       .result-item { background: #fdfdfd; border: 1px solid #eee; padding: 15px; margin-bottom: 15px; border-radius: 5px; }
       .result-item .citation { font-weight: bold; }
       .result-item .reference { margin-top: 5px; padding-left: 15px; border-left: 3px solid #ddd; }
-      .verification { margin-top: 10px; padding: 8px; background: #e7f3fe; border: 1px solid #d0e0f0; border-radius: 4px; font-size: 0.9em;}
+      .verification-list { margin-top: 10px; padding: 8px; background: #e7f3fe; border: 1px solid #d0e0f0; border-radius: 4px; font-size: 0.9em; list-style-position: inside;}
       .full-match { border-left-color: #2ecc71; }
       .partial-match { border-left-color: #f1c40f; }
       .missing-ref { border-left-color: #e74c3c; color: #e74c3c; }
@@ -479,6 +365,17 @@ const ReferenceChecker = () => {
         </div>
     `;
 
+    const renderVerification = (ref) => {
+      if (!verificationResults || !verificationResults[ref.original]) return '';
+      const sources = verificationResults[ref.original];
+      let verificationHtml = '<ul class="verification-list">';
+      for (const [source, result] of Object.entries(sources)) {
+        verificationHtml += `<li><strong>${source}:</strong> ${result.status} ${result.details ? `- <i>${result.details}</i>` : ''}</li>`;
+      }
+      verificationHtml += '</ul>';
+      return verificationHtml;
+    }
+
     if (results.fullMatches.length > 0) {
       html += '<h2>Full Matches</h2>';
       results.fullMatches.forEach(item => {
@@ -486,7 +383,7 @@ const ReferenceChecker = () => {
           <div class="result-item full-match">
             <div class="citation">Citation: ${item.citation.original}</div>
             <div class="reference">Matches: ${item.reference.original}</div>
-            ${verificationResults && verificationResults[item.reference.original] ? `<div class="verification"><strong>Verification:</strong> ${verificationResults[item.reference.original].status} - ${verificationResults[item.reference.original].details}</div>` : ''}
+            ${renderVerification(item.reference)}
           </div>
         `;
       });
@@ -499,7 +396,7 @@ const ReferenceChecker = () => {
           <div class="result-item partial-match">
             <div class="citation">Citation: ${item.citation.original}</div>
             <div class="reference">Matches: ${item.reference.original}</div>
-            ${verificationResults && verificationResults[item.reference.original] ? `<div class="verification"><strong>Verification:</strong> ${verificationResults[item.reference.original].status} - ${verificationResults[item.reference.original].details}</div>` : ''}
+            ${renderVerification(item.reference)}
           </div>
         `;
       });
@@ -508,11 +405,7 @@ const ReferenceChecker = () => {
     if (results.missing.length > 0) {
       html += '<h2>Missing References</h2>';
       results.missing.forEach(item => {
-        html += `
-          <div class="result-item missing-ref">
-            <div class="citation">Citation: ${item.citation.original}</div>
-          </div>
-        `;
+        html += `<div class="result-item missing-ref"><div class="citation">Citation: ${item.citation.original}</div></div>`;
       });
     }
 
@@ -522,7 +415,7 @@ const ReferenceChecker = () => {
         html += `
           <div class="result-item unused-ref">
             <div class="reference">${item.reference.original}</div>
-            ${verificationResults && verificationResults[item.reference.original] ? `<div class="verification"><strong>Verification:</strong> ${verificationResults[item.reference.original].status} - ${verificationResults[item.reference.original].details}</div>` : ''}
+            ${renderVerification(item.reference)}
           </div>
         `;
       });
