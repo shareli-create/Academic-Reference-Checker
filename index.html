@@ -283,16 +283,14 @@ const ReferenceChecker = () => {
     unusedRefs.forEach(unused => {
         const potentialMatches = [];
         const ref = unused.reference;
-        const refFirstAuthorNorm = normalize(extractFirstAuthor(ref.firstAuthor));
+        const refAllAuthorsNorm = normalize(ref.allAuthors);
 
         missingCits.forEach((missing) => {
             const cit = missing.citation;
             if (ref.year === cit.year) {
                 const citFirstAuthorNorm = normalize(extractFirstAuthor(cit.authors));
-                if (refFirstAuthorNorm.length > 3 && citFirstAuthorNorm.length > 3) {
-                    if (refFirstAuthorNorm.includes(citFirstAuthorNorm) || citFirstAuthorNorm.includes(refFirstAuthorNorm)) {
-                        potentialMatches.push(cit);
-                    }
+                if (citFirstAuthorNorm.length > 3 && refAllAuthorsNorm.includes(citFirstAuthorNorm)) {
+                    potentialMatches.push(cit);
                 }
             }
         });
