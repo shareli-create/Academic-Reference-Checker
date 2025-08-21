@@ -526,7 +526,7 @@ const ReferenceChecker = () => {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-800">Analysis Summary</h2>
                 <div className="flex space-x-2">
-                  {results.unused.length > 0 && !lenientMatches && (
+                  {results && results.unused.length > 0 && results.missing.length > 0 && !lenientMatches && (
                     <button
                       onClick={runLenientAnalysis}
                       disabled={isLenientAnalysisRunning}
