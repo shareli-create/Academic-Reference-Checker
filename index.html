@@ -760,7 +760,13 @@ const ReferenceChecker = () => {
     setVerificationResults(null);
     
     setTimeout(() => {
-      if (!isMounted.current) return;
+      console.log('[DEBUG] setTimeout callback fired. Checking mounted status...');
+      console.log('[DEBUG] isMounted.current is:', isMounted.current);
+      if (!isMounted.current) {
+        console.log('[DEBUG] Component is unmounted, aborting state update.');
+        return;
+      }
+      console.log('[DEBUG] Component is mounted. Proceeding with analysis and state update.');
       console.log("=== STARTING ANALYSIS ===");
       const citations = extractCitations(document);
       console.log(`Found ${citations.length} citations:`, citations.map(c => c.original));
