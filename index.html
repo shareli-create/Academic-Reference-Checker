@@ -27,11 +27,16 @@ const ReferenceChecker = () => {
   const [isThirdAnalysisRunning, setIsThirdAnalysisRunning] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationResults, setVerificationResults] = useState(null);
-  const isMounted = useRef(true);
+  const processTimer = useRef(null);
+  const secondAnalysisTimer = useRef(null);
+  const thirdAnalysisTimer = useRef(null);
 
   useEffect(() => {
+    // On unmount, clear any running timers
     return () => {
-      isMounted.current = false;
+      clearTimeout(processTimer.current);
+      clearTimeout(secondAnalysisTimer.current);
+      clearTimeout(thirdAnalysisTimer.current);
     };
   }, []);
 
@@ -513,8 +518,7 @@ const ReferenceChecker = () => {
     if (!results || !results.unused.length) return;
     setIsSecondAnalysisRunning(true);
     
-    setTimeout(() => {
-      if (!isMounted.current) return;
+    secondAnalysisTimer.current = setTimeout(() => {
       const suggestions = performSecondAnalysis(results.unused, document);
       setSecondAnalysis(suggestions);
       setIsSecondAnalysisRunning(false);
@@ -525,8 +529,7 @@ const ReferenceChecker = () => {
     if (!results || !results.missing.length) return;
     setIsThirdAnalysisRunning(true);
     
-    setTimeout(() => {
-      if (!isMounted.current) return;
+    thirdAnalysisTimer.current = setTimeout(() => {
       const suggestions = performThirdAnalysis(results.missing, document);
       setThirdAnalysis(suggestions);
       setIsThirdAnalysisRunning(false);
@@ -662,7 +665,6 @@ const ReferenceChecker = () => {
     const verificationResults = {};
     
     for (const ref of allReferences) {
-      if (!isMounted.current) return;
       try {
         const { title, firstAuthor, year } = parseReference(ref);
         const searchQuery = `${title} ${firstAuthor} ${year || ''}`.trim();
@@ -684,10 +686,8 @@ const ReferenceChecker = () => {
       }
     }
     
-    if (isMounted.current) {
-      setVerificationResults(verificationResults);
-      setIsVerifying(false);
-    }
+    setVerificationResults(verificationResults);
+    setIsVerifying(false);
   };
 
   const generateTextReport = () => {
@@ -759,14 +759,7 @@ const ReferenceChecker = () => {
     setThirdAnalysis(null);
     setVerificationResults(null);
     
-    setTimeout(() => {
-      console.log('[DEBUG] setTimeout callback fired. Checking mounted status...');
-      console.log('[DEBUG] isMounted.current is:', isMounted.current);
-      if (!isMounted.current) {
-        console.log('[DEBUG] Component is unmounted, aborting state update.');
-        return;
-      }
-      console.log('[DEBUG] Component is mounted. Proceeding with analysis and state update.');
+    processTimer.current = setTimeout(() => {
       console.log("=== STARTING ANALYSIS ===");
       const citations = extractCitations(document);
       console.log(`Found ${citations.length} citations:`, citations.map(c => c.original));
