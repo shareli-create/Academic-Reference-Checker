@@ -199,7 +199,8 @@ const ReferenceChecker = () => {
           citation: citation,
           reference: bestMatch.reference,
           confidence: bestMatch.confidence,
-          matchType: bestMatch.matchType
+          matchType: bestMatch.matchType,
+          isProblematic: false
         };
 
         if (bestMatch.matchType === 'full') {
@@ -303,7 +304,8 @@ const ReferenceChecker = () => {
       },
       reference: suggestionToConfirm.reference,
       confidence: 'User Confirmed',
-      matchType: 'user_confirmed'
+      matchType: 'user_confirmed',
+      isProblematic: false
     };
 
     const newPartialMatches = [...results.partialMatches, newMatch];
@@ -390,7 +392,8 @@ const ReferenceChecker = () => {
       citation: confirmedCitation,
       reference: suggestionToConfirm.reference,
       confidence: 'User Confirmed',
-      matchType: 'user_confirmed'
+      matchType: 'user_confirmed',
+      isProblematic: false
     };
 
     // Add the new match to the partialMatches list
@@ -435,6 +438,23 @@ const ReferenceChecker = () => {
         // Remove the suggestion if it has no more candidates
         return newAnalysis.filter(suggestion => suggestion.candidates.length > 0);
     });
+  };
+
+  const toggleProblematic = (matchToToggle) => {
+    const updateMatches = (matches) => {
+      return matches.map(match => {
+        if (match.citation.original === matchToToggle.citation.original && match.reference.original === matchToToggle.reference.original) {
+          return { ...match, isProblematic: !match.isProblematic };
+        }
+        return match;
+      });
+    };
+
+    setResults(prevResults => ({
+      ...prevResults,
+      fullMatches: updateMatches(prevResults.fullMatches),
+      partialMatches: updateMatches(prevResults.partialMatches),
+    }));
   };
   
   const processDocument = (textToProcess) => {
@@ -484,12 +504,14 @@ const ReferenceChecker = () => {
       .summary-card { background: #f9f9f9; border: 1px solid #eee; border-left: 5px solid #3498db; padding: 15px; border-radius: 5px; }
       .summary-card .value { font-size: 1.8em; font-weight: bold; }
       .result-item { background: #fdfdfd; border: 1px solid #eee; padding: 15px; margin-bottom: 15px; border-radius: 5px; }
+      .result-item.problematic { border-left-color: #e74c3c; background: #fff5f5; }
       .result-item .citation { font-weight: bold; }
       .result-item .reference { margin-top: 5px; padding-left: 15px; border-left: 3px solid #ddd; }
       .full-match { border-left-color: #2ecc71; }
       .partial-match { border-left-color: #f1c40f; }
       .missing-ref { border-left-color: #e74c3c; color: #e74c3c; }
       .unused-ref { border-left-color: #e67e22; }
+      .attention-heading { color: #e74c3c; }
     `;
 
     let html = `
@@ -514,9 +536,22 @@ const ReferenceChecker = () => {
         </div>
     `;
 
+    const problematicMatches = [...results.fullMatches, ...results.partialMatches].filter(m => m.isProblematic);
+    if (problematicMatches.length > 0) {
+        html += '<h2 class="attention-heading">Items Flagged for Manual Review</h2>';
+        problematicMatches.forEach(item => {
+            html += `
+              <div class="result-item problematic">
+                <div class="citation">Citation: ${item.citation.original}</div>
+                <div class="reference">Matches: ${item.reference.original}</div>
+              </div>
+            `;
+        });
+    }
+
     if (results.fullMatches.length > 0) {
       html += '<h2>Full Matches</h2>';
-      results.fullMatches.forEach(item => {
+      results.fullMatches.filter(m => !m.isProblematic).forEach(item => {
         html += `
           <div class="result-item full-match">
             <div class="citation">Citation: ${item.citation.original}</div>
@@ -528,7 +563,7 @@ const ReferenceChecker = () => {
     
     if (results.partialMatches.length > 0) {
       html += '<h2>Partial Matches</h2>';
-      results.partialMatches.forEach(item => {
+      results.partialMatches.filter(m => !m.isProblematic).forEach(item => {
         html += `
           <div class="result-item partial-match">
             <div class="citation">Citation: ${item.citation.original}</div>
@@ -700,11 +735,11 @@ const ReferenceChecker = () => {
                   <div className="text-sm text-gray-600">Total Citations</div>
                 </div>
                 <div className="bg-emerald-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-emerald-600">{results.summary.fullMatches}</div>
+                  <div className="text-2xl font-bold text-emerald-600">{results.summary.fullMatches.length}</div>
                   <div className="text-sm text-gray-600">Full Matches</div>
                 </div>
                 <div className="bg-green-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-green-600">{results.summary.partialMatches}</div>
+                  <div className="text-2xl font-bold text-green-600">{results.summary.partialMatches.length}</div>
                   <div className="text-sm text-gray-600">Partial Matches</div>
                 </div>
                 <div className="bg-red-50 p-4 rounded-lg text-center">
@@ -849,7 +884,7 @@ const ReferenceChecker = () => {
                 </div>
                 <div className="space-y-3">
                   {results.fullMatches.map((item, index) => (
-                    <div key={index} className="border border-emerald-200 rounded-lg p-4 bg-emerald-50">
+                    <div key={index} className={`border rounded-lg p-4 ${item.isProblematic ? 'border-yellow-400 bg-yellow-50' : 'border-emerald-200 bg-emerald-50'}`}>
                       <div className="flex items-center justify-between">
                         <div className="flex-1">
                           <div className="font-semibold text-emerald-800">
@@ -862,9 +897,14 @@ const ReferenceChecker = () => {
                             </a>
                           </div>
                         </div>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getConfidenceBadge(item.confidence)}`}>
-                          {item.confidence}% confidence
-                        </span>
+                        <div className="flex flex-col space-y-1 ml-2">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getConfidenceBadge(item.confidence)}`}>
+                              {item.confidence}% confidence
+                            </span>
+                            <button onClick={() => toggleProblematic(item)} className={`mt-1 text-xs px-2 py-1 rounded ${item.isProblematic ? 'bg-yellow-400 hover:bg-yellow-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>
+                                {item.isProblematic ? '✓ Flagged' : 'Flag for Review'}
+                            </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -880,7 +920,7 @@ const ReferenceChecker = () => {
                 </div>
                 <div className="space-y-3">
                   {results.partialMatches.map((item, index) => (
-                    <div key={index} className="border border-green-200 rounded-lg p-4 bg-green-50">
+                    <div key={index} className={`border rounded-lg p-4 ${item.isProblematic ? 'border-yellow-400 bg-yellow-50' : 'border-green-200 bg-green-50'}`}>
                       <div className="flex items-center justify-between">
                         <div className="flex-1">
                           <div className="font-semibold text-green-800">
@@ -893,9 +933,14 @@ const ReferenceChecker = () => {
                             </a>
                           </div>
                         </div>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getConfidenceBadge(item.confidence)}`}>
-                          {item.confidence === 'User Confirmed' ? 'User Confirmed' : `${item.confidence}% confidence`}
-                        </span>
+                        <div className="flex flex-col space-y-1 ml-2">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getConfidenceBadge(item.confidence)}`}>
+                              {item.confidence === 'User Confirmed' ? 'User Confirmed' : `${item.confidence}% confidence`}
+                            </span>
+                            <button onClick={() => toggleProblematic(item)} className={`mt-1 text-xs px-2 py-1 rounded ${item.isProblematic ? 'bg-yellow-400 hover:bg-yellow-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>
+                                {item.isProblematic ? '✓ Flagged' : 'Flag for Review'}
+                            </button>
+                        </div>
                       </div>
                     </div>
                   ))}
