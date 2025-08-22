@@ -21,6 +21,8 @@ const ReferenceChecker = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [lenientMatches, setLenientMatches] = useState(null);
   const [isLenientAnalysisRunning, setIsLenientAnalysisRunning] = useState(false);
+  const [textSearchResults, setTextSearchResults] = useState(null);
+  const [isTextSearchRunning, setIsTextSearchRunning] = useState(false);
 
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
@@ -219,6 +221,123 @@ const ReferenceChecker = () => {
     return { fullMatches, partialMatches, unmatched, unusedReferences };
   };
 
+  const performTextSearchAnalysis = (unusedRefs, documentText) => {
+    const suggestions = [];
+    
+    unusedRefs.forEach(unusedRef => {
+      const ref = unusedRef.reference;
+      const refFirstAuthor = extractFirstAuthor(ref.firstAuthor).toLowerCase();
+      const refYear = ref.year;
+      const candidates = [];
+      
+      const authorVariations = [
+        refFirstAuthor,
+        refFirstAuthor.charAt(0).toUpperCase() + refFirstAuthor.slice(1),
+        ref.firstAuthor.split(',')[0].toLowerCase().trim(),
+        ref.firstAuthor.split(',')[0].trim()
+      ];
+      
+      if (refFirstAuthor.includes('-')) {
+        const parts = refFirstAuthor.split('-');
+        authorVariations.push(parts[0]);
+        authorVariations.push(parts[0].charAt(0).toUpperCase() + parts[0].slice(1));
+      }
+      
+      const uniqueAuthorVariations = [...new Set(authorVariations)];
+
+      uniqueAuthorVariations.forEach(authorVar => {
+        if (authorVar.length < 3) return;
+        
+        const escapedAuthor = authorVar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        
+        try {
+          const narrativeRegex = new RegExp(`\\b${escapedAuthor}[A-Za-z\\-]*(?:\\s+et\\s+al\\.?)?(?:'s)?\\s*\\(${refYear}\\)`, 'gi');
+          let match;
+          while ((match = narrativeRegex.exec(documentText)) !== null) {
+            candidates.push({ text: match[0], confidence: 0.9, type: 'narrative' });
+          }
+          
+          const parentheticalRegex = new RegExp(`\\([^)]*${escapedAuthor}[^)]*${refYear}[^)]*\\)`, 'gi');
+          while ((match = parentheticalRegex.exec(documentText)) !== null) {
+            candidates.push({ text: match[0], confidence: 0.8, type: 'parenthetical' });
+          }
+        } catch (e) {
+          console.error("Regex failed for author:", authorVar, e);
+        }
+      });
+      
+      const uniqueCandidates = candidates
+        .filter((candidate, index, arr) => arr.findIndex(c => c.text === candidate.text) === index)
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, 3);
+      
+      if (uniqueCandidates.length > 0) {
+        suggestions.push({ reference: ref, candidates: uniqueCandidates });
+      }
+    });
+    
+    return suggestions;
+  };
+
+  const runTextSearchAnalysis = () => {
+    if (!results || !results.unused.length) return;
+    setIsTextSearchRunning(true);
+    
+    setTimeout(() => {
+      const suggestions = performTextSearchAnalysis(results.unused, documentText);
+      setTextSearchResults(suggestions);
+      setIsTextSearchRunning(false);
+    }, 1000);
+  };
+
+  const confirmTextSearchMatch = (suggestionToConfirm, candidateText) => {
+    if (!results || !suggestionToConfirm) return;
+
+    const newMatch = {
+      citation: {
+        original: candidateText,
+        authors: extractFirstAuthor(suggestionToConfirm.reference.firstAuthor),
+        year: suggestionToConfirm.reference.year,
+        normalized: normalize(extractFirstAuthor(suggestionToConfirm.reference.firstAuthor) + ' ' + suggestionToConfirm.reference.year),
+        type: 'user_confirmed_from_text'
+      },
+      reference: suggestionToConfirm.reference,
+      confidence: 'User Confirmed',
+      matchType: 'user_confirmed'
+    };
+
+    const newPartialMatches = [...results.partialMatches, newMatch];
+    const updatedUnused = results.unused.filter(u => u.reference.original !== suggestionToConfirm.reference.original);
+    
+    const newSummary = {
+      ...results.summary,
+      partialMatches: newPartialMatches.length,
+      unusedReferences: updatedUnused.length,
+    };
+
+    setResults({
+      ...results,
+      partialMatches: newPartialMatches,
+      unused: updatedUnused,
+      summary: newSummary,
+    });
+
+    setTextSearchResults(prev => prev.filter(s => s.reference.original !== suggestionToConfirm.reference.original));
+  };
+
+  const dismissTextSearchSuggestion = (suggestionToDismiss, candidateToDismiss) => {
+    setTextSearchResults(prev => {
+        const newAnalysis = prev.map(suggestion => {
+            if (suggestion.reference.original === suggestionToDismiss.reference.original) {
+                const newCandidates = suggestion.candidates.filter(c => c.text !== candidateToDismiss.text);
+                return { ...suggestion, candidates: newCandidates };
+            }
+            return suggestion;
+        });
+        return newAnalysis.filter(suggestion => suggestion.candidates.length > 0);
+    });
+  };
+
   const performLenientAnalysis = (unusedRefs, missingCitations) => {
     const suggestions = [];
 
@@ -324,6 +443,7 @@ const ReferenceChecker = () => {
     
     setResults(null);
     setLenientMatches(null);
+    setTextSearchResults(null);
     setIsProcessing(true);
     
     setTimeout(() => {
@@ -526,6 +646,25 @@ const ReferenceChecker = () => {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-800">Analysis Summary</h2>
                 <div className="flex space-x-2">
+                  {results && results.unused.length > 0 && !textSearchResults && (
+                    <button
+                        onClick={runTextSearchAnalysis}
+                        disabled={isTextSearchRunning}
+                        className="flex items-center space-x-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 disabled:bg-gray-400 transition-colors"
+                    >
+                        {isTextSearchRunning ? (
+                            <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                <span>Searching Text...</span>
+                            </>
+                        ) : (
+                            <>
+                                <span className="text-lg">📄</span>
+                                <span>Find in Text</span>
+                            </>
+                        )}
+                    </button>
+                  )}
                   {results && results.unused.length > 0 && results.missing.length > 0 && !lenientMatches && (
                     <button
                       onClick={runLenientAnalysis}
@@ -540,7 +679,7 @@ const ReferenceChecker = () => {
                       ) : (
                         <>
                           <span className="text-lg">🔄</span>
-                          <span>Find Lenient Matches</span>
+                          <span>Match Unused/Missing</span>
                         </>
                       )}
                     </button>
@@ -626,6 +765,59 @@ const ReferenceChecker = () => {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {results.missing.length > 0 && (
+              <div className="bg-white rounded-xl shadow-lg p-6">
+            {textSearchResults && textSearchResults.length > 0 && (
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center">
+                        <span className="text-2xl text-teal-500 mr-2">📄</span>
+                        <h3 className="text-xl font-bold text-gray-800">Potential Mentions Found in Text ({textSearchResults.length})</h3>
+                    </div>
+                </div>
+                <div className="space-y-4">
+                    {textSearchResults.map((suggestion, index) => (
+                        <div key={index} className="border rounded-lg p-4 bg-teal-50 border-teal-200">
+                            <div className="font-semibold text-gray-800 mb-2">
+                                Unused Reference: <span className="font-normal">{suggestion.reference.original}</span>
+                            </div>
+                            <div>
+                                <div className="text-sm font-medium text-gray-700 mb-2">Potential mentions found:</div>
+                                {suggestion.candidates.map((candidate, candIndex) => (
+                                    <div key={candIndex} className="mb-2 p-2 bg-white border rounded">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex-1">
+                                                <div className="text-sm font-mono bg-gray-100 p-2 rounded">
+                                                    {candidate.text}
+                                                </div>
+                                                <div className={`text-xs mt-1 ${getConfidenceColor(candidate.confidence)}`}>
+                                                    {Math.round(candidate.confidence * 100)}% confidence • {candidate.type}
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col space-y-1 ml-4">
+                                                <button
+                                                    onClick={() => confirmTextSearchMatch(suggestion, candidate.text)}
+                                                    className="px-3 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
+                                                >
+                                                    Confirm Match
+                                                </button>
+                                                <button
+                                                    onClick={() => dismissTextSearchSuggestion(suggestion, candidate)}
+                                                    className="px-3 py-1 bg-gray-400 text-white text-xs rounded hover:bg-gray-500 transition-colors"
+                                                >
+                                                    Dismiss
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
                 </div>
               </div>
             )}
