@@ -15,7 +15,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <script type="text/babel">
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 
 const ReferenceChecker = () => {
   const [document, setDocument] = useState('');
@@ -27,6 +27,13 @@ const ReferenceChecker = () => {
   const [isThirdAnalysisRunning, setIsThirdAnalysisRunning] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationResults, setVerificationResults] = useState(null);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     lucide.createIcons();
@@ -507,6 +514,7 @@ const ReferenceChecker = () => {
     setIsSecondAnalysisRunning(true);
     
     setTimeout(() => {
+      if (!isMounted.current) return;
       const suggestions = performSecondAnalysis(results.unused, document);
       setSecondAnalysis(suggestions);
       setIsSecondAnalysisRunning(false);
@@ -518,6 +526,7 @@ const ReferenceChecker = () => {
     setIsThirdAnalysisRunning(true);
     
     setTimeout(() => {
+      if (!isMounted.current) return;
       const suggestions = performThirdAnalysis(results.missing, document);
       setThirdAnalysis(suggestions);
       setIsThirdAnalysisRunning(false);
@@ -653,6 +662,7 @@ const ReferenceChecker = () => {
     const verificationResults = {};
     
     for (const ref of allReferences) {
+      if (!isMounted.current) return;
       try {
         const { title, firstAuthor, year } = parseReference(ref);
         const searchQuery = `${title} ${firstAuthor} ${year || ''}`.trim();
@@ -674,8 +684,10 @@ const ReferenceChecker = () => {
       }
     }
     
-    setVerificationResults(verificationResults);
-    setIsVerifying(false);
+    if (isMounted.current) {
+      setVerificationResults(verificationResults);
+      setIsVerifying(false);
+    }
   };
 
   const generateTextReport = () => {
@@ -748,6 +760,7 @@ const ReferenceChecker = () => {
     setVerificationResults(null);
     
     setTimeout(() => {
+      if (!isMounted.current) return;
       console.log("=== STARTING ANALYSIS ===");
       const citations = extractCitations(document);
       console.log(`Found ${citations.length} citations:`, citations.map(c => c.original));
