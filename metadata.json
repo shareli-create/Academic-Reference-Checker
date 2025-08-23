@@ -1,0 +1,5 @@
+{
+  "name": "Academic Reference Checker",
+  "description": "An advanced 4-stage analysis system to match in-text citations with references in academic documents. It helps find missing citations, unused references, and potential matches using multiple algorithms.",
+  "requestFramePermissions": []
+}
